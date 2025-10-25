@@ -33,7 +33,7 @@
 - Cross-platform build considerations
 
 **Hints**:
-- ~~Use `FetchContent` in CMake for fetching libraries (simpler than vcpkg for learning)
+- ~~Use `FetchContent` in CMake for fetching libraries (simpler than vcpkg for learning)~~
 - Set `CMAKE_EXPORT_COMPILE_COMMANDS=ON` for editor integration (VS Code, CLion)
 - **Performance Note**: Debug builds are slow; use `CMAKE_BUILD_TYPE=Release` for testing download speeds
 
