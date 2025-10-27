@@ -12,7 +12,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Find packages installed by vcpkg
 find_package(CURL REQUIRED)
 
-add_executable(DownloadManager src/DownloadManager.cpp)
+add_executable(DownloadManager src/DownloadManager.cpp src/HttpClient.cpp)
 
 # Link libraries
 target_link_libraries(DownloadManager PRIVATE CURL::libcurl)
+
+#to include header files
+target_include_directories(DownloadManager PRIVATE include)
