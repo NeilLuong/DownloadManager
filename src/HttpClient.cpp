@@ -24,17 +24,34 @@ bool CurlHttpClient::download_file(std::string& url, char* output_path) {
         if(!fp){
             return false;
         }
+        // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 
+
         CURLcode res = curl_easy_perform(curl);
-        if(res != CURLE_OK){
-            fclose(fp);
-            return false;
-        }
+        long response_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        if(res == CURLE_OK){
+            if(response_code == 200){
+                std::cout << response_code << std::endl;
+                fclose(fp);
+                return true;
+            }else if(response_code == 404){
+                std::cout << "Error 404: File not found." << std::endl;
+                fclose(fp);
+                return false;
+            }else{
+                std::cout << "HTTP Error: " << response_code << std::endl;
+                fclose(fp);
+                return false;
+            }
+        }else{
+        std::cout << "CURL Error: " << curl_easy_strerror(res) << std::endl;
         fclose(fp);
-        return true;
+        return false;
+        }
     }
     return false;
 }
