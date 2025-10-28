@@ -9,11 +9,17 @@ size_t write_data(void *ptr, size_t size, size_t nmemb, FILE* stream){
 }
 
 int main(int argc, char* argv[]) {
-    
+    std::cout << "Usage: DownloadManager [URL] [output_file]" << std::endl;
+    if(argc != 3){
+        std::cout << "Invalid arguements" << std::endl;
+        return 1;
+    }
+
+
     CURL *curl = curl_easy_init();
     FILE *fp = nullptr;
-    std::string url = "http://www.google.com/404";
-    char out_filename[FILENAME_MAX] = "test.png";
+    std::string url = argv[1];
+    std::string out_filename = argv[2];
     CurlHttpClient httpClient;
     httpClient.download_file(url, out_filename);
 
