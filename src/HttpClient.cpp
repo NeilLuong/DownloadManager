@@ -22,6 +22,53 @@ size_t CurlHttpClient::write_data(void *ptr, size_t size, size_t nmemb, FILE* st
     return written;
 }
 
+bool CurlHttpClient::ensure_dir_exists(const std::filesystem::path& file_path) {
+    try {
+        std::filesystem::path dir = file_path.parent_path();
+        
+        if(dir.empty()) {
+            return true;
+        }
+
+        if (std::filesystem::exists(dir)) {
+            return true;
+        }
+
+        std::filesystem::create_directories(dir);
+        std::cout << "Created directory: " << dir << std::endl;
+        return true;
+    } catch (const std::filesystem::filesystem_error e) {
+        std::cerr << "\nError creating directory: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool CurlHttpClient::check_disk_space(const std::filesystem::path& file_path, curl_off_t required_bytes) {
+    try {
+        std::filesystem::path dir = file_path.parent_path();
+
+        if (dir.empty()) {
+            dir = std::filesystem::current_path();
+        }
+
+        std::filesystem::space_info space = std::filesystem::space(dir);
+        if (space.available < static_cast<uintmax_t>(required_bytes)) {
+            std::cerr << "\nInsufficient disk space!" << std::endl;
+            std::cerr << "Required: " << (required_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
+            std::cerr << "Available: " << (space.available / (1024.0 * 1024.0)) << " MB" << std::endl;
+            return false;
+        }
+
+        return true;
+
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "\nError checking disk space: " << e.what() << std::endl;
+        // proceed anyway
+        return true;
+    }
+}
+
+
 int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     CurlHttpClient* client = static_cast<CurlHttpClient*>(clientp);
 
@@ -67,16 +114,8 @@ int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_of
         eta_seconds = static_cast<int>(remaining_bytes / speed_bps);
     }
 
-    auto format_bytes = [](curl_off_t bytes) -> std::string {
-        if (bytes >= 1024 * 1024 * 1024) {
-            return std::to_string(bytes / (1024 * 1024 * 1024)) + "GB";
-        } else if (bytes >= 1024 * 1024) {
-            return std::to_string(bytes / (1024 * 1024)) + "MB";
-        } else if (bytes >= 1024) {
-            return std::to_string(bytes / 1024) + "KB";
-        }
-        return std::to_string(bytes) + "B";
-    };
+    // auto format_bytes = [](curl_off_t bytes) -> std::string {
+    // };
 
     int bar_width = 20;
     int filled = static_cast<int>(percentage / 100.0 * bar_width);
@@ -112,8 +151,41 @@ int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_of
 
 bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
     if(curl){
-        FILE *fp = fopen(output_path.c_str(), "wb");
+        std::filesystem::path final_path(output_path);
+        std::filesystem::path temp_path = final_path;
+        temp_path += ".part";
+
+        if (!ensure_dir_exists(final_path)) {
+            std::cerr << "\nFailed to create directory for: " << output_path << std::endl;
+            return false;
+        }
+
+        CURL* head_curl = curl_easy_init();
+        if (head_curl) {
+            curl_easy_setopt(head_curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(head_curl, CURLOPT_NOBODY, 1L);  // HEAD request
+            curl_easy_setopt(head_curl, CURLOPT_HEADER, 0L);
+            
+            CURLcode head_res = curl_easy_perform(head_curl);
+            if (head_res == CURLE_OK) {
+                curl_off_t file_size = 0;
+                curl_easy_getinfo(head_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &file_size);
+        
+                if (file_size > 0) {
+                    // Check if we have enough disk space
+                    if (!check_disk_space(final_path, file_size)) {
+                        curl_easy_cleanup(head_curl);
+                        return false;
+                    }
+                }
+            }       
+            curl_easy_cleanup(head_curl);
+        }
+
+        FILE *fp = fopen(temp_path.string().c_str(), "wb");
         if(!fp){
+            std::cerr << "\nFailed to open file for writing: " << temp_path << std::endl;
+            std::cerr << "Check permissions and disk space." << std::endl;
             return false;
         }
         // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
@@ -132,28 +204,60 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         last_time = start_time;
         progress_complete = false; 
 
+
         CURLcode res = curl_easy_perform(curl);
         long response_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+        //Get the download file size
+        curl_off_t download_size = 0;
+        curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &download_size);
+
+        fclose(fp);
+
         if(res == CURLE_OK){
             if(response_code == 200){
                 std::cout << std::endl;  // Ensure we're on a new line
-                fclose(fp);
+                try
+                {
+                    std::filesystem::rename(temp_path, final_path);
+                    std::cout << "Download complete: " << final_path << std::endl;
+                    return true;
+
+                }
+                catch(const std::filesystem::filesystem_error& e)
+                {
+                    std::cerr << "Error renaming file: " << e.what() << std::endl;
+                    std::cerr << "Downloaded file is at: " << temp_path << std::endl;
+                    return false;
+                }
+                
                 return true;
             }else if(response_code == 404){
                 std::cout << "\nError 404: File not found." << std::endl;
-                fclose(fp);
+                std::filesystem::remove(temp_path);
                 return false;
             }else{
                 std::cout << "\nHTTP Error: " << response_code << std::endl;
-                fclose(fp);
+                std::filesystem::remove(temp_path);
                 return false;
             }
         }else{
         std::cout << "\nCURL Error: " << curl_easy_strerror(res) << std::endl;
-        fclose(fp);
+        std::filesystem::remove(temp_path);
         return false;
         }
     }
     return false;
+}
+
+std::string CurlHttpClient::format_bytes(curl_off_t bytes){
+    if (bytes >= 1024 * 1024 * 1024) {
+            return std::to_string(bytes / (1024 * 1024 * 1024)) + "GB";
+        } else if (bytes >= 1024 * 1024) {
+            return std::to_string(bytes / (1024 * 1024)) + "MB";
+        } else if (bytes >= 1024) {
+            return std::to_string(bytes / 1024) + "KB";
+        }
+        return std::to_string(bytes) + "B";
 }

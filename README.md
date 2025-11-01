@@ -97,11 +97,11 @@ ls -lh test.bin  # Should show ~1MB file
 **Goal**: Display real-time download progress in the terminal (plain text, no TUI yet).
 
 **Acceptance Criteria**:
-- [ ] Progress displayed as percentage and bytes downloaded
-- [ ] Download speed calculated in KB/s or MB/s
-- [ ] Progress updates every second
-- [ ] ETA calculated based on current speed
-- [ ] Progress uses libcurl's built-in progress callback
+- [x] Progress displayed as percentage and bytes downloaded
+- [x] Download speed calculated in KB/s or MB/s
+- [x] Progress updates every second
+- [x] ETA calculated based on current speed
+- [x] Progress uses libcurl's built-in progress callback
 
 **Approach**:
 1. Set `CURLOPT_XFERINFOFUNCTION` callback for progress updates
@@ -136,11 +136,11 @@ ls -lh test.bin  # Should show ~1MB file
 **Goal**: Robust file handling with `<filesystem>`, create partial files, and handle edge cases.
 
 **Acceptance Criteria**:
-- [ ] Check if destination directory exists; create if needed
-- [ ] Check available disk space before download
-- [ ] Create `.part` file for partial downloads
-- [ ] Rename `.part` to final filename on completion
-- [ ] Handle file permission errors gracefully
+- [x] Check if destination directory exists; create if needed
+- [x] Check available disk space before download
+- [x] Create `.part` file for partial downloads
+- [x] Rename `.part` to final filename on completion
+- [x] Handle file permission errors gracefully
 
 **Approach**:
 1. Use `std::filesystem::path` for cross-platform path handling
