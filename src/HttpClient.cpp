@@ -8,6 +8,7 @@ CurlHttpClient::CurlHttpClient() {
     curl = curl_easy_init();
     last_dlnow = 0;
     progress_complete = false; 
+    resume_from = 0;
 }
 
 CurlHttpClient::~CurlHttpClient() {
@@ -88,7 +89,11 @@ int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_of
         return 0;  // Don't update display yet. This is a special case
     }
 
-    double percentage = (dlnow * 100.0) / dltotal;
+    //Account for resumed downloads
+    curl_off_t total_downloaded = client->resume_from + dlnow;
+    curl_off_t total_size = client->resume_from + dltotal;
+
+    double percentage = (total_downloaded * 100.0) / total_size;
 
     auto total_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - client->start_time);
     double speed_bps = 0.0;
@@ -133,7 +138,7 @@ int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_of
 
     std::cout << "\r" << bar << " "
               << std::fixed << std::setprecision(1) << percentage << "% | "
-              << format_bytes(dlnow) << " / " << format_bytes(dltotal) << " | "
+              << format_bytes(total_downloaded) << " / " << format_bytes(total_size) << " | "
               << std::setprecision(2) << speed_display << speed_unit << " | "
               << "ETA: " << eta_seconds << "s      "
               << std::flush;
@@ -182,7 +187,30 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
             curl_easy_cleanup(head_curl);
         }
 
-        FILE *fp = fopen(temp_path.string().c_str(), "wb");
+        //resume scenario
+        curl_off_t existing_size = 0;
+        bool resuming = false;
+
+        if (std::filesystem::exists(temp_path)) {
+            existing_size = std::filesystem::file_size(temp_path);
+
+            if (existing_size > 0) {
+                resuming = true;
+                resume_from = existing_size;
+                std::cout << "\nFound partial download (" 
+                          << format_bytes(existing_size)
+                          << "). Resuming..." << std::endl; 
+            } else {
+                std::filesystem::remove(temp_path);
+                existing_size = 0;
+            }
+        } else {
+            resume_from = 0;
+        }
+
+        const char* file_mode = resuming ? "ab" : "wb";
+
+        FILE *fp = fopen(temp_path.string().c_str(), file_mode);
         if(!fp){
             std::cerr << "\nFailed to open file for writing: " << temp_path << std::endl;
             std::cerr << "Check permissions and disk space." << std::endl;
@@ -193,9 +221,15 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 
+        //Progress tracking
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, this);
+
+        if (resuming) {
+            std::string range_header = std::to_string(existing_size) + "-";
+            curl_easy_setopt(curl, CURLOPT_RANGE, range_header.c_str());
+        }
         
         /**
          * Reset attributes for new downloads
@@ -216,8 +250,16 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         fclose(fp);
 
         if(res == CURLE_OK){
-            if(response_code == 200){
+            if(response_code == 200 || response_code == 206){
                 std::cout << std::endl;  // Ensure we're on a new line
+
+                if (resuming && response_code == 200) {
+                    std::cout << "Server doesn't support resume. Restarting from beginning..." << std::endl;
+                    //file is corrupted since the server will be sending the request for the full file again. 
+                    //But the .part file will be open in append mode => appended full file to existing partial file
+                    //Let user know to delete .part file and redownload
+                    std::cerr << "Warning: Downloaded file may be corrupted. Please delete .part file and retry." << std::endl;
+                }
                 try
                 {
                     std::filesystem::rename(temp_path, final_path);

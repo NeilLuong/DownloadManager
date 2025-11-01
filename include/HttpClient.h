@@ -23,6 +23,7 @@ private:
     curl_off_t last_dlnow;
     std::chrono::steady_clock::time_point last_time;
     bool progress_complete;
+    curl_off_t resume_from;
 
     bool ensure_dir_exists(const std::filesystem::path& file_path);
     bool check_disk_space(const std::filesystem::path& file_path, curl_off_t required_bytes);
