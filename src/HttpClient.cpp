@@ -69,6 +69,49 @@ bool CurlHttpClient::check_disk_space(const std::filesystem::path& file_path, cu
     }
 }
 
+ErrorType CurlHttpClient::classify_error(CURLcode curl_error, long http_code) {
+    if (curl_error == CURLE_OK) {
+        if (http_code >= 200 && http_code < 300) {
+            return ErrorType::Success;
+        }
+    }
+
+    //HTTP 4xx errors are permanent (client errors)
+    if (http_code >= 400 && http_code < 500) {
+        return ErrorType::Permanent;
+    }
+
+    //HTTP 5xx are transient (server erros which might recover)
+    if (http_code >= 500 && http_code < 600) {
+        return ErrorType::Transient;
+    }
+
+    switch (curl_error)
+    {
+    //transient errors
+    case CURLE_OPERATION_TIMEDOUT: // Timeout reached
+    case CURLE_COULDNT_CONNECT: // Failed to connect
+    case CURLE_COULDNT_RESOLVE_HOST: // DNS lookup failed
+    case CURLE_RECV_ERROR: // Failed receiving data
+    case CURLE_SEND_ERROR: // Failed sending data
+    case CURLE_PARTIAL_FILE: // Transfer ended prematurely
+    case CURLE_GOT_NOTHING: // Server returned nothing
+        return ErrorType::Transient;
+    
+    //permanent errors, dont retry
+    case CURLE_URL_MALFORMAT:           // Invalid URL format
+    case CURLE_UNSUPPORTED_PROTOCOL:    // Protocol not supported
+    case CURLE_SSL_CONNECT_ERROR:       // SSL handshake failed
+    case CURLE_SSL_CERTPROBLEM:         // SSL certificate problem
+    case CURLE_PEER_FAILED_VERIFICATION: // SSL peer certificate failed
+    case CURLE_HTTP_RETURNED_ERROR:     // HTTP error (handled above by http_code)
+        return ErrorType::Permanent;
+
+    default:
+        return ErrorType::Transient;
+    }
+}
+
 
 int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     CurlHttpClient* client = static_cast<CurlHttpClient*>(clientp);
@@ -153,16 +196,44 @@ int CurlHttpClient::progress_callback(void *clientp, curl_off_t dltotal, curl_of
     return 0;
 }
 
+std::string get_timestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto now_time_t = std::chrono::system_clock::to_time_t(now);
+    char buffer[26];
+
+    #ifdef _WIN32
+        ctime_s(buffer, sizeof(buffer), &now_time_t);
+    #else
+        ctime_r(&now_time_t, buffer);
+    #endif
+
+    std::string timestamp(buffer);
+    if (!timestamp.empty() && timestamp.back() == '\n') {
+        timestamp.pop_back();
+    }
+
+    return timestamp;
+}
+
 
 bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
-    if(curl){
-        std::filesystem::path final_path(output_path);
-        std::filesystem::path temp_path = final_path;
-        temp_path += ".part";
+    if(!curl) {
+        return false;
+    }
 
-        if (!ensure_dir_exists(final_path)) {
-            std::cerr << "\nFailed to create directory for: " << output_path << std::endl;
-            return false;
+    std::filesystem::path final_path(output_path);
+    std::filesystem::path temp_path = final_path;
+    temp_path += ".part";
+
+    if (!ensure_dir_exists(final_path)) {
+        std::cerr << "\nFailed to create directory for: " << output_path << std::endl;
+        return false;
+    }
+
+    for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            std::cout << "\n[" << get_timestamp() << "]"
+                      << "Retry attempt " << attempt << "/" << MAX_RETRIES << "..." << std::endl;
         }
 
         CURL* head_curl = curl_easy_init();
@@ -209,11 +280,9 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         }
 
         const char* file_mode = resuming ? "ab" : "wb";
-
         FILE *fp = fopen(temp_path.string().c_str(), file_mode);
         if(!fp){
             std::cerr << "\nFailed to open file for writing: " << temp_path << std::endl;
-            std::cerr << "Check permissions and disk space." << std::endl;
             return false;
         }
         // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
@@ -230,7 +299,11 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
             std::string range_header = std::to_string(existing_size) + "-";
             curl_easy_setopt(curl, CURLOPT_RANGE, range_header.c_str());
         }
-        
+
+        // Set timeout to avoid hanging forever
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);  // 5 minutes
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds to connect
+            
         /**
          * Reset attributes for new downloads
          */
@@ -243,53 +316,73 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         long response_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
 
-        //Get the download file size
-        curl_off_t download_size = 0;
-        curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &download_size);
 
         fclose(fp);
 
-        if(res == CURLE_OK){
-            if(response_code == 200 || response_code == 206){
-                std::cout << std::endl;  // Ensure we're on a new line
+        ErrorType error_type = classify_error(res, response_code);
 
-                if (resuming && response_code == 200) {
-                    std::cout << "Server doesn't support resume. Restarting from beginning..." << std::endl;
-                    //file is corrupted since the server will be sending the request for the full file again. 
-                    //But the .part file will be open in append mode => appended full file to existing partial file
-                    //Let user know to delete .part file and redownload
-                    std::cerr << "Warning: Downloaded file may be corrupted. Please delete .part file and retry." << std::endl;
-                }
-                try
-                {
-                    std::filesystem::rename(temp_path, final_path);
-                    std::cout << "Download complete: " << final_path << std::endl;
-                    return true;
-
-                }
-                catch(const std::filesystem::filesystem_error& e)
-                {
-                    std::cerr << "Error renaming file: " << e.what() << std::endl;
-                    std::cerr << "Downloaded file is at: " << temp_path << std::endl;
-                    return false;
-                }
-                
+        if(error_type == ErrorType::Success){
+            std::cout << std::endl;  // Ensure we're on a new line
+            try
+            {
+                std::filesystem::rename(temp_path, final_path);
+                std::cout << "Download complete: " << final_path << std::endl;
                 return true;
-            }else if(response_code == 404){
-                std::cout << "\nError 404: File not found." << std::endl;
-                std::filesystem::remove(temp_path);
-                return false;
-            }else{
-                std::cout << "\nHTTP Error: " << response_code << std::endl;
-                std::filesystem::remove(temp_path);
-                return false;
             }
-        }else{
-        std::cout << "\nCURL Error: " << curl_easy_strerror(res) << std::endl;
-        std::filesystem::remove(temp_path);
-        return false;
+            catch(const std::filesystem::filesystem_error& e)
+            {
+                std::cerr << "Error renaming file: " << e.what() << std::endl;
+                std::cerr << "Downloaded file is at: " << temp_path << std::endl;
+                return false;
+            }    
+        }
+        if (error_type == ErrorType::Permanent) {
+            std::cout << std::endl; 
+            if (res == CURLE_OK) {
+                std::cerr << "\nHTTP Error " << response_code << ": ";
+                if (response_code == 404) {
+                    std::cerr << "File not found";
+                } 
+                else if (response_code == 403) {
+                    std::cerr << "Access forbidden";
+                } 
+                else if (response_code == 401) {
+                    std::cerr << "Authentication required";
+                } else {
+                    std::cerr << "Client error";
+                }
+            std::cerr << std::endl;
+            } else {
+                std::cerr << "\nError: " << curl_easy_strerror(res) << std::endl;
+            }
+            std::filesystem::remove(temp_path);
+            return false;
+        }
+
+        if (error_type == ErrorType::Transient) {
+            std::cout << std::endl;
+
+            std::cerr << "[" << get_timestamp() << "] ";
+            if (res == CURLE_OK) {
+                std::cerr << "Server error (HTTP " << response_code << ")";
+            } else {
+                std::cerr << "Network error: " << curl_easy_strerror(res);
+            }
+
+            std::cerr << std::endl;
+
+            if (attempt < MAX_RETRIES) {
+                int delay = 1 << attempt;  // Exponential backoff: 2^attempt
+                std::cout << "Waiting " << delay << " second(s) before retry..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
+            }
+            // continue to next iteration
+            continue;
         }
     }
+
+    std::cerr << "\nDownload failed after " << MAX_RETRIES << " retries." << std::endl;
+    std::filesystem::remove(temp_path);
     return false;
 }
 

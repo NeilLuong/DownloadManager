@@ -2,6 +2,13 @@
 #include <string>
 #include <chrono>
 #include <filesystem> // cross platform file/dir operations
+#include <thread>
+
+enum class ErrorType {
+    Transient,
+    Permanent,
+    Success
+};
 class CurlHttpClient{
 public:
     CurlHttpClient();
@@ -18,6 +25,8 @@ public:
 
     
 private:
+    static const int MAX_RETRIES = 3;
+
     CURL *curl;
     std::chrono::steady_clock::time_point start_time;
     curl_off_t last_dlnow;
@@ -27,4 +36,5 @@ private:
 
     bool ensure_dir_exists(const std::filesystem::path& file_path);
     bool check_disk_space(const std::filesystem::path& file_path, curl_off_t required_bytes);
+    ErrorType classify_error(CURLcode curl_error, long http_code);
 };

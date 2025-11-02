@@ -22,8 +22,6 @@ int main(int argc, char* argv[]) {
     std::string out_filename = argv[2];
     CurlHttpClient httpClient;
     httpClient.download_file(url, out_filename);
-
-    std::cout << "Download Manager v1.0" << std::endl;
     return 0;
 }
 
