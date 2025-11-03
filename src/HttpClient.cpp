@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include "HttpClient.h"
+#include "Config.h"
 
 
 CurlHttpClient::CurlHttpClient() {
@@ -216,7 +217,8 @@ std::string get_timestamp() {
 }
 
 
-bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
+bool CurlHttpClient::download_file(std::string& url, std::string& output_path,
+                                    int max_retries, int timeout, int connect_timeout) {
     if(!curl) {
         return false;
     }
@@ -230,10 +232,10 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         return false;
     }
 
-    for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (int attempt = 0; attempt <= max_retries; attempt++) {
         if (attempt > 0) {
             std::cout << "\n[" << get_timestamp() << "]"
-                      << "Retry attempt " << attempt << "/" << MAX_RETRIES << "..." << std::endl;
+                      << "Retry attempt " << attempt << "/" << max_retries << "..." << std::endl;
         }
 
         CURL* head_curl = curl_easy_init();
@@ -301,8 +303,8 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         }
 
         // Set timeout to avoid hanging forever
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);  // 5 minutes
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds to connect
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout));  // 5 minutes
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(connect_timeout));  // 30 seconds to connect
             
         /**
          * Reset attributes for new downloads
@@ -371,7 +373,7 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
 
             std::cerr << std::endl;
 
-            if (attempt < MAX_RETRIES) {
+            if (attempt < max_retries) {
                 int delay = 1 << attempt;  // Exponential backoff: 2^attempt
                 std::cout << "Waiting " << delay << " second(s) before retry..." << std::endl;
                 std::this_thread::sleep_for(std::chrono::seconds(delay));
@@ -381,7 +383,7 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path) {
         }
     }
 
-    std::cerr << "\nDownload failed after " << MAX_RETRIES << " retries." << std::endl;
+    std::cerr << "\nDownload failed after " << max_retries << " retries." << std::endl;
     std::filesystem::remove(temp_path);
     return false;
 }

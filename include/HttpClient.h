@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem> // cross platform file/dir operations
 #include <thread>
+#include "Config.h"
 
 enum class ErrorType {
     Transient,
@@ -14,14 +15,13 @@ public:
     CurlHttpClient();
     ~CurlHttpClient();
 
-    bool download_file(std::string& url, std::string& output_path);
+    bool download_file(std::string& url, std::string& output_path, int max_retries = 3, int timeout = 300, int connect_timeout = 30);
 
     static size_t write_data(void *ptr, size_t size, size_t nmemb, FILE* stream);
 
     static int progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
 
     static std::string format_bytes(curl_off_t bytes); 
-
 
     
 private:
