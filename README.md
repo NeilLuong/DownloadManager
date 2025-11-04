@@ -218,11 +218,11 @@ downloadFile("http://httpbin.org/bytes/999999999999", "huge.bin");  // Should ch
 **Goal**: Handle transient network errors with exponential backoff retry.
 
 **Acceptance Criteria**:
-- [ ] Distinguish transient errors (timeout, connection reset) from permanent errors (404, 403)
-- [ ] Retry transient errors up to 3 times with delays: 1s, 2s, 4s
-- [ ] Log each retry attempt with reason
-- [ ] Fail permanently after max retries exceeded
-- [ ] User-friendly error messages for common failures
+- [x] Distinguish transient errors (timeout, connection reset) from permanent errors (404, 403)
+- [x] Retry transient errors up to 3 times with delays: 1s, 2s, 4s
+- [x] Log each retry attempt with reason
+- [x] Fail permanently after max retries exceeded
+- [x] User-friendly error messages for common failures
 
 **Approach**:
 1. Create `enum class ErrorType { Transient, Permanent, Unknown }`
@@ -261,11 +261,11 @@ downloadFile("http://httpbin.org/bytes/999999999999", "huge.bin");  // Should ch
 **Goal**: Parse CLI arguments for URL, destination, and options.
 
 **Acceptance Criteria**:
-- [ ] Accept URL and destination as positional arguments
-- [ ] Support optional flags: `--retry-count`, `--timeout`, `--output`
-- [ ] Display help message with `--help` or `-h`
-- [ ] Validate arguments (URL format, writable destination)
-- [ ] Set defaults for optional parameters
+- [x] Accept URL and destination as positional arguments
+- [x] Support optional flags: `--retry-count`, `--timeout`, `--output`
+- [x] Display help message with `--help` or `-h`
+- [x] Validate arguments (URL format, writable destination)
+- [x] Set defaults for optional parameters
 
 **Approach**:
 1. Use a simple argument parser (manual or library like CLI11/argparse)
@@ -301,11 +301,11 @@ downloadFile("http://httpbin.org/bytes/999999999999", "huge.bin");  // Should ch
 **Goal**: Verify downloaded file integrity using SHA-256 checksums.
 
 **Acceptance Criteria**:
-- [ ] Compute SHA-256 hash of downloaded file
-- [ ] Compare with expected hash (provided via CLI or sidecar file)
-- [ ] Report verification success/failure
-- [ ] Quarantine corrupted files to separate directory
-- [ ] Support other hash algorithms (MD5, SHA-1) as optional
+- [x] Compute SHA-256 hash of downloaded file
+- [x] Compare with expected hash (provided via CLI or sidecar file)
+- [x] Report verification success/failure
+- [x] Quarantine corrupted files to separate directory
+- [] Support other hash algorithms (MD5, SHA-1) as optional
 
 **Approach**:
 1. Use OpenSSL (often available with libcurl) or standalone SHA-256 implementation
