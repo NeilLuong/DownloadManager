@@ -9,6 +9,9 @@ struct Config {
     int connect_timeout_seconds;
     bool show_help;
 
+    std::string expected_checksum;
+    bool verify_checksum;
+
     Config()
         : url("")
         , output_path("")
@@ -16,5 +19,7 @@ struct Config {
         , timeout_seconds(300)
         , connect_timeout_seconds(30)
         , show_help(false)
+        , expected_checksum("")
+        , verify_checksum(false)
         {}
 };

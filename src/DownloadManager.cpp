@@ -19,12 +19,15 @@ int main(int argc, char* argv[]) {
     std::cout << "Output: " << config.output_path << std::endl;
     std::cout << "Retry count: " << config.retry_count << std::endl;
     std::cout << "Timeout: " << config.timeout_seconds << "s" << std::endl;
+
+    if (config.verify_checksum) {
+        std::cout << "Checksum verification: enabled" << std::endl;
+        std::cout << "Expected hash: " << config.expected_checksum.substr(0, 16) << "..." << std::endl;
+    }
+
     std::cout << std::endl;
-    
-    bool success = httpClient.download_file(config.url, config.output_path,
-                                             config.retry_count,
-                                             config.timeout_seconds,
-                                             config.connect_timeout_seconds);
+
+    bool success = httpClient.download_and_verify(config);
     
     return success ? 0 : 1;
 }

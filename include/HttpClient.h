@@ -16,6 +16,7 @@ public:
     ~CurlHttpClient();
 
     bool download_file(std::string& url, std::string& output_path, int max_retries = 3, int timeout = 300, int connect_timeout = 30);
+    bool download_and_verify(const Config& config);
 
     static size_t write_data(void *ptr, size_t size, size_t nmemb, FILE* stream);
 

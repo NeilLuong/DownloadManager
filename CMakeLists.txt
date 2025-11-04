@@ -9,16 +9,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # For editor integration (go-to-definition, auto-complete, etc.)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Help CMake find OpenSSL on macOS (Homebrew location)
+if(APPLE)
+    set(OPENSSL_ROOT_DIR /opt/homebrew/opt/openssl@3)
+endif()
+
 # Find packages installed by vcpkg
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_executable(DownloadManager 
 src/DownloadManager.cpp 
 src/HttpClient.cpp
-src/ArgParser.cpp)
+src/ArgParser.cpp
+src/Checksum.cpp)
 
 # Link libraries
-target_link_libraries(DownloadManager PRIVATE CURL::libcurl)
+target_link_libraries(DownloadManager PRIVATE CURL::libcurl OpenSSL::SSL OpenSSL::Crypto)
 
 #to include header files
 target_include_directories(DownloadManager PRIVATE include)

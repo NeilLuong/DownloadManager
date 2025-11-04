@@ -2,6 +2,7 @@
 #include <iomanip>
 #include "HttpClient.h"
 #include "Config.h"
+#include "Checksum.h"
 
 
 CurlHttpClient::CurlHttpClient() {
@@ -397,4 +398,62 @@ std::string CurlHttpClient::format_bytes(curl_off_t bytes){
             return std::to_string(bytes / 1024) + "KB";
         }
         return std::to_string(bytes) + "B";
+}
+bool CurlHttpClient::download_and_verify(const Config& config) {
+    // First, perform the download
+    std::string url = config.url;
+    std::string output_path = config.output_path;
+    
+    bool download_success = download_file(url, output_path,
+                                           config.retry_count,
+                                           config.timeout_seconds,
+                                           config.connect_timeout_seconds);
+    
+    if (!download_success) {
+        return false;  // Download failed
+    }
+    
+    // If checksum verification requested, verify it
+    if (config.verify_checksum) {
+        std::cout << "\nVerifying checksum..." << std::endl;
+        
+        std::filesystem::path file_path(output_path);
+        
+        bool checksum_valid = Checksum::verify_sha256(file_path, config.expected_checksum);
+        
+        if (checksum_valid) {
+            std::cout << "✓ Checksum verified successfully!" << std::endl;
+            return true;
+        } else {
+            std::cerr << "✗ Checksum verification failed!" << std::endl;
+            std::cerr << "Expected: " << config.expected_checksum << std::endl;
+            
+            // Compute actual hash to show user
+            std::string actual = Checksum::compute_sha256(file_path);
+            std::cerr << "Actual:   " << actual << std::endl;
+            
+            // Quarantine the corrupted file
+            std::filesystem::path quarantine_dir("./quarantine");
+            
+            try {
+                // Create quarantine directory if it doesn't exist
+                if (!std::filesystem::exists(quarantine_dir)) {
+                    std::filesystem::create_directories(quarantine_dir);
+                    std::cout << "Created quarantine directory" << std::endl;
+                }
+                
+                // Move file to quarantine
+                std::filesystem::path quarantine_path = quarantine_dir / file_path.filename();
+                std::filesystem::rename(file_path, quarantine_path);
+                
+                std::cerr << "File moved to quarantine: " << quarantine_path << std::endl;
+            } catch (const std::filesystem::filesystem_error& e) {
+                std::cerr << "Error quarantining file: " << e.what() << std::endl;
+            }
+            
+            return false;
+        }
+    }
+    
+    return true;  // No verification requested, download succeeded
 }

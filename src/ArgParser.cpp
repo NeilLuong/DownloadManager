@@ -16,6 +16,7 @@ void ArgParser::print_help(const char* program_name) {
     std::cout << "  -r, --retry-count <num> Number of retries on failure (default: 3)\n";
     std::cout << "  -t, --timeout <seconds> Download timeout in seconds (default: 300)\n";
     std::cout << "  -c, --connect-timeout <s>  Connection timeout in seconds (default: 30)\n";
+    std::cout << "  --checksum <hash>          Expected SHA-256 hash for verification\n"; 
     std::cout << "  -h, --help                 Show this help message\n\n";
 
     std::cout << "EXAMPLES:\n";
@@ -23,6 +24,7 @@ void ArgParser::print_help(const char* program_name) {
     std::cout << "  " << program_name << " http://example.com/file.zip -o myfile.zip\n";
     std::cout << "  " << program_name << " http://example.com/file.zip --retry-count 5\n";
     std::cout << "  " << program_name << " http://example.com/file.zip -o output.zip -r 5 -t 600\n";
+    std::cout << "  " << program_name << " http://example.com/file.zip --checksum abc123...\n";
 }
 
 bool ArgParser::is_valid_url(const std::string& url) {
@@ -91,7 +93,26 @@ Config ArgParser::parse(int argc, char* argv[]) {
                 std::cerr << "Error: --retry-count requires a value\n";
                 std::exit(1);
             }
-        } else if (arg == "--timeout" || arg == "-t") {
+        }
+        else if (arg == "--checksum") {
+            if (i + 1 < argc) {
+                std::string checksum_arg = argv[i + 1];
+                
+                // Check if it starts with "sha256:" (optional prefix)
+                if (checksum_arg.find("sha256:") == 0) {
+                    config.expected_checksum = checksum_arg.substr(7);  // Skip "sha256:" prefix
+                } else {
+                    config.expected_checksum = checksum_arg;
+                }
+                
+                config.verify_checksum = true;
+                i++;
+            } else {
+                std::cerr << "Error: --checksum requires a value\n";
+                std::exit(1);
+            }
+        }
+        else if (arg == "--timeout" || arg == "-t") {
             if (i + 1 < argc) {
                 try
                 {
