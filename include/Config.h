@@ -11,6 +11,7 @@ struct Config {
 
     std::string expected_checksum;
     bool verify_checksum;
+    std::string default_download_dir;
 
     Config()
         : url("")
@@ -21,5 +22,6 @@ struct Config {
         , show_help(false)
         , expected_checksum("")
         , verify_checksum(false)
+        , default_download_dir(".")
         {}
 };

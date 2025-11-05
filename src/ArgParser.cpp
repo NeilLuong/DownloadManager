@@ -1,4 +1,5 @@
 #include "ArgParser.h"
+#include "ConfigManager.h"
 #include <iostream>
 #include <string>
 
@@ -42,7 +43,10 @@ bool ArgParser::is_valid_url(const std::string& url) {
 }
 
 Config ArgParser::parse(int argc, char* argv[]) {
-    Config config;
+    ConfigManager::ensure_config_exists();
+
+    Config file_config = ConfigManager::load_config();
+    Config cli_config;
 
     if (argc < 2) {
         print_help(argv[0]);
@@ -53,8 +57,8 @@ Config ArgParser::parse(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--help" || arg == "-h") {
-            config.show_help = true;
-            return config;
+            cli_config.show_help = true;
+            return cli_config;
         }
     }
 
@@ -67,7 +71,7 @@ Config ArgParser::parse(int argc, char* argv[]) {
         //handle flags with values
         if (arg == "--output" || arg == "-o") {
             if (i + 1 < argc) {
-                config.output_path = argv[i+1];
+                cli_config.output_path = argv[i+1];
                 i++; //skip next arguement
             } else {
                 std::cerr << "Error: --output requires a value\n";
@@ -77,8 +81,8 @@ Config ArgParser::parse(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 try
                 {
-                    config.retry_count = std::stoi(argv[i + 1]);
-                    if (config.retry_count < 0) {
+                    cli_config.retry_count = std::stoi(argv[i + 1]);
+                    if (cli_config.retry_count < 0) {
                         std::cerr << "Error: retry count must be non-negative\n";
                         std::exit(1);
                     }
@@ -100,12 +104,12 @@ Config ArgParser::parse(int argc, char* argv[]) {
                 
                 // Check if it starts with "sha256:" (optional prefix)
                 if (checksum_arg.find("sha256:") == 0) {
-                    config.expected_checksum = checksum_arg.substr(7);  // Skip "sha256:" prefix
+                    cli_config.expected_checksum = checksum_arg.substr(7);  // Skip "sha256:" prefix
                 } else {
-                    config.expected_checksum = checksum_arg;
+                    cli_config.expected_checksum = checksum_arg;
                 }
                 
-                config.verify_checksum = true;
+                cli_config.verify_checksum = true;
                 i++;
             } else {
                 std::cerr << "Error: --checksum requires a value\n";
@@ -116,8 +120,8 @@ Config ArgParser::parse(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 try
                 {
-                    config.timeout_seconds = std::stoi(argv[i + 1]);
-                    if (config.timeout_seconds < 0) {
+                    cli_config.timeout_seconds = std::stoi(argv[i + 1]);
+                    if (cli_config.timeout_seconds < 0) {
                         std::cerr << "Error timeout must be positive\n";
                         std::exit(1);
                     }
@@ -136,8 +140,8 @@ Config ArgParser::parse(int argc, char* argv[]) {
         else if (arg == "--connect-timeout" || arg == "-c") {
             if (i + 1 < argc) {
                 try {
-                    config.connect_timeout_seconds = std::stoi(argv[i + 1]);
-                    if (config.connect_timeout_seconds <= 0) {
+                    cli_config.connect_timeout_seconds = std::stoi(argv[i + 1]);
+                    if (cli_config.connect_timeout_seconds <= 0) {
                         std::cerr << "Error: connect-timeout must be positive\n";
                         std::exit(1);
                     }
@@ -160,38 +164,39 @@ Config ArgParser::parse(int argc, char* argv[]) {
         else {
             // Positional argument (URL)
             if (!found_url) {
-                config.url = arg;
+                cli_config.url = arg;
                 found_url = true;
             } else {
                 // If we already have URL and no --output flag, treat as output path
-                if (config.output_path.empty()) {
-                    config.output_path = arg;
+                if (cli_config.output_path.empty()) {
+                    cli_config.output_path = arg;
                 }
             }
         }
     }
-    if (config.url.empty()) {
+    if (cli_config.url.empty()) {
         std::cerr << "Error: URL is required\n";
         print_help(argv[0]);
         std::exit(1);
     }
 
-    if (!is_valid_url(config.url)) {
-        std::cerr << "Error: invalid URL format '" << config.url << "'\n";
+    if (!is_valid_url(cli_config.url)) {
+        std::cerr << "Error: invalid URL format '" << cli_config.url << "'\n";
         std::cerr << "URL must start with http:// or https://\n";
         std::exit(1);
     }
 
     // If no output path specified, extract filename from URL
-    if (config.output_path.empty()) {
+    if (cli_config.output_path.empty()) {
         // Find last '/' in URL
-        size_t last_slash = config.url.find_last_of('/');
-        if (last_slash != std::string::npos && last_slash < config.url.length() - 1) {
-            config.output_path = config.url.substr(last_slash + 1);
+        size_t last_slash = cli_config.url.find_last_of('/');
+        if (last_slash != std::string::npos && last_slash < cli_config.url.length() - 1) {
+            cli_config.output_path = cli_config.url.substr(last_slash + 1);
         } else {
-            config.output_path = "download.bin";  // Default filename
+            cli_config.output_path = "download.bin";  // Default filename
         }
     }
+    Config final_config = ConfigManager::merge_configs(file_config, cli_config);
 
-    return config;
+    return final_config;
 }
