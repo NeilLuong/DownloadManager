@@ -3,10 +3,11 @@
 #include "HttpClient.h"
 #include "Config.h"
 #include "Checksum.h"
+#include "Logger.h"
 
 
 CurlHttpClient::CurlHttpClient() {
-    std::cout << "Initializing CURL instance." << std::endl;
+    LOG_INFO("Initializing CURL HTTP Client.");
     curl = curl_easy_init();
     last_dlnow = 0;
     progress_complete = false; 
@@ -38,7 +39,7 @@ bool CurlHttpClient::ensure_dir_exists(const std::filesystem::path& file_path) {
         }
 
         std::filesystem::create_directories(dir);
-        std::cout << "Created directory: " << dir << std::endl;
+        LOG_INFO("Created directory: " + dir.string());
         return true;
     } catch (const std::filesystem::filesystem_error e) {
         std::cerr << "\nError creating directory: " << e.what() << std::endl;
@@ -56,7 +57,7 @@ bool CurlHttpClient::check_disk_space(const std::filesystem::path& file_path, cu
 
         std::filesystem::space_info space = std::filesystem::space(dir);
         if (space.available < static_cast<uintmax_t>(required_bytes)) {
-            std::cerr << "\nInsufficient disk space!" << std::endl;
+            LOG_ERROR("Insufficient disk space for download.");
             std::cerr << "Required: " << (required_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
             std::cerr << "Available: " << (space.available / (1024.0 * 1024.0)) << " MB" << std::endl;
             return false;
@@ -235,8 +236,8 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path,
 
     for (int attempt = 0; attempt <= max_retries; attempt++) {
         if (attempt > 0) {
-            std::cout << "\n[" << get_timestamp() << "]"
-                      << "Retry attempt " << attempt << "/" << max_retries << "..." << std::endl;
+            std::string retryMsg = "Retry attempt " + std::to_string(attempt) + "/" + std::to_string(max_retries);
+            LOG_WARN(retryMsg);
         }
 
         CURL* head_curl = curl_easy_init();

@@ -23,7 +23,8 @@ src/DownloadManager.cpp
 src/HttpClient.cpp
 src/ArgParser.cpp
 src/Checksum.cpp
-src/ConfigManager.cpp)
+src/ConfigManager.cpp
+src/Logger.cpp)
 
 # Link libraries
 target_link_libraries(DownloadManager PRIVATE CURL::libcurl OpenSSL::SSL OpenSSL::Crypto)

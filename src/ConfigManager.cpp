@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+#include "Logger.h"
 
 using json = nlohmann::json;
 
@@ -30,7 +31,8 @@ std::filesystem::path ConfigManager::get_config_path() {
     try {
         if (!std::filesystem::exists(config_dir)) {
             std::filesystem::create_directories(config_dir);
-            std::cout << "Created config directory: " << config_dir << std::endl;
+            std::string msg = "Created config directory: " + config_dir.string();
+            LOG_INFO(msg);
         }
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Error creating config directory: " << e.what() << std::endl;
