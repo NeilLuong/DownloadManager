@@ -5,8 +5,20 @@
 #include "ArgParser.h"
 #include "Config.h"
 #include "Logger.h"
+#include "ThreadPool.h"
+#include <iostream>
+#include <chrono>
+
+void test_thread_pool();
 
 int main(int argc, char* argv[]) {
+    //TestThreadPool
+    if (argc == 2 && std::string(argv[1]) == "--test-threadpool") {
+        test_thread_pool();
+        return 0;
+    }
+    //TestEnd
+    
     Config config = ArgParser::parse(argc, argv);
 
     if (config.show_help) {
@@ -43,5 +55,49 @@ int main(int argc, char* argv[]) {
     }
     
     return success ? 0 : 1;
+}
+
+void test_thread_pool() {
+    std::cout << "\n=== Testing ThreadPool ===\n\n";
+    
+    // Create pool with 4 threads
+    ThreadPool pool(4);
+    
+    // Test 1: Simple tasks
+    std::cout << "Test 1: Running 10 simple tasks...\n";
+    std::vector<std::future<int>> results;
+    
+    for (int i = 0; i < 10; ++i) {
+        results.emplace_back(
+            pool.enqueue([i] {
+                std::cout << "  Task " << i << " running on thread " 
+                          << std::this_thread::get_id() << "\n";
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                return i * i;  // Return i squared
+            })
+        );
+    }
+    
+    // Get results
+    std::cout << "\nResults:\n";
+    for (size_t i = 0; i < results.size(); ++i) {
+        int result = results[i].get();  // Blocks until task completes
+        std::cout << "  Task " << i << " result: " << result << "\n";
+    }
+    
+    // Test 2: Exception handling
+    std::cout << "\nTest 2: Exception handling...\n";
+    auto future = pool.enqueue([] {
+        throw std::runtime_error("Test exception");
+        return 42;
+    });
+    
+    try {
+        future.get();
+    } catch (const std::exception& e) {
+        std::cout << "  Caught exception: " << e.what() << "\n";
+    }
+    
+    std::cout << "\n=== ThreadPool tests complete ===\n\n";
 }
 
