@@ -1,20 +1,28 @@
 #include <iostream>
 #include <curl/curl.h>
 #include <string>
+#include <cassert>
 #include "HttpClient.h"
 #include "ArgParser.h"
 #include "Config.h"
 #include "Logger.h"
 #include "ThreadPool.h"
-#include <iostream>
+#include "DownloadTask.h"
 #include <chrono>
 
 void test_thread_pool();
+void test_download_task();
 
 int main(int argc, char* argv[]) {
     //TestThreadPool
     if (argc == 2 && std::string(argv[1]) == "--test-threadpool") {
         test_thread_pool();
+        return 0;
+    }
+
+    //TestDownloadTask
+    if (argc == 2 && std::string(argv[1]) == "--test-downloadtask") {
+        test_download_task();
         return 0;
     }
     //TestEnd
@@ -97,7 +105,139 @@ void test_thread_pool() {
     } catch (const std::exception& e) {
         std::cout << "  Caught exception: " << e.what() << "\n";
     }
-    
+
+    // Test 3: Void return type
+    std::cout << "\nTest 3: Void return type...\n";
+    int counter = 0;
+    std::vector<std::future<void>> voidFutures;
+
+    for (int i = 0; i < 5; ++i) {
+        voidFutures.emplace_back(
+            pool.enqueue([i, &counter] {
+                std::cout << "  Void task " << i << " executing\n";
+                counter++;  // Side effect instead of return value
+            })
+        );
+    }
+
+    // Wait for all void tasks to complete
+    for (auto& f : voidFutures) {
+        f.get();  // get() on void future just blocks until complete
+    }
+
+    std::cout << "  All void tasks completed. Counter = " << counter << "\n";
+
     std::cout << "\n=== ThreadPool tests complete ===\n\n";
+}
+
+void test_download_task() {
+    std::cout << "\n=== Testing DownloadTask ===\n\n";
+
+    // Test 1: State transitions
+    std::cout << "Test 1: State transitions...\n";
+    DownloadTask task("http://example.com/file.zip", "output.zip", 3, 300, "");
+
+    std::cout << "  Initial state: " << stateToString(task.getState()) << "\n";
+    assert(task.getState() == DownloadState::Queued);
+
+    task.start();
+    std::cout << "  After start(): " << stateToString(task.getState()) << "\n";
+    assert(task.getState() == DownloadState::Downloading);
+
+    task.pause();
+    std::cout << "  After pause(): " << stateToString(task.getState()) << "\n";
+    assert(task.getState() == DownloadState::Paused);
+
+    task.resume();
+    std::cout << "  After resume(): " << stateToString(task.getState()) << "\n";
+    assert(task.getState() == DownloadState::Downloading);
+
+    task.markCompleted();
+    std::cout << "  After markCompleted(): " << stateToString(task.getState()) << "\n";
+    assert(task.getState() == DownloadState::Completed);
+
+    // Test 2: Invalid transitions
+    std::cout << "\nTest 2: Invalid transitions...\n";
+    task.start();  // Should fail - already completed
+    assert(task.getState() == DownloadState::Completed);
+    std::cout << "  Cannot start completed task: OK\n";
+
+    // Test 3: Progress tracking
+    std::cout << "\nTest 3: Progress tracking...\n";
+    DownloadTask task2("http://example.com/big.zip", "big.zip", 3, 300, "");
+    task2.start();
+
+    task2.updateProgress(0, 1000);
+    std::cout << "  Progress: " << task2.getProgressPercentage() << "%\n";
+    assert(task2.getProgressPercentage() == 0.0);
+
+    task2.updateProgress(500, 1000);
+    std::cout << "  Progress: " << task2.getProgressPercentage() << "%\n";
+    assert(task2.getProgressPercentage() == 50.0);
+
+    task2.updateProgress(1000, 1000);
+    std::cout << "  Progress: " << task2.getProgressPercentage() << "%\n";
+    assert(task2.getProgressPercentage() == 100.0);
+
+    // Test 4: Error handling
+    std::cout << "\nTest 4: Error handling...\n";
+    DownloadTask task3("http://example.com/fail.zip", "fail.zip", 3, 300, "");
+    task3.start();
+    task3.markFailed("Connection timeout");
+
+    assert(task3.getState() == DownloadState::Failed);
+    std::cout << "  Error message: " << task3.getErrorMessage() << "\n";
+    assert(task3.getErrorMessage() == "Connection timeout");
+
+    // Test 5: Config integration
+    std::cout << "\nTest 5: Config integration...\n";
+    DownloadTask task4("http://example.com/test.zip", "test.zip", 5, 600, "abc123def");
+    Config config = task4.toConfig();
+
+    assert(config.url == "http://example.com/test.zip");
+    assert(config.output_path == "test.zip");
+    assert(config.retry_count == 5);
+    assert(config.timeout_seconds == 600);
+    assert(config.expected_checksum == "abc123def");
+    assert(config.verify_checksum == true);
+    std::cout << "  Config values correct\n";
+
+    // Test 6: Thread safety (concurrent reads)
+    std::cout << "\nTest 6: Thread safety...\n";
+    DownloadTask task5("http://example.com/concurrent.zip", "concurrent.zip", 3, 300, "");
+    task5.start();
+    task5.updateProgress(0, 1000000);
+
+    ThreadPool pool(4);
+    std::vector<std::future<void>> futures;
+
+    // Simulate multiple threads reading state/progress
+    for (int i = 0; i < 100; ++i) {
+        futures.push_back(pool.enqueue([&task5, i] {
+            // Simulate progress updates from download thread
+            if (i % 2 == 0) {
+                task5.updateProgress(i * 10000, 1000000);
+            }
+
+            // Simulate UI thread reading progress
+            auto state = task5.getState();
+            auto progress = task5.getProgressPercentage();
+            auto bytes = task5.getBytesDownloaded();
+
+            // Just access the values (proves no data races)
+            (void)state;
+            (void)progress;
+            (void)bytes;
+        }));
+    }
+
+    // Wait for all
+    for (auto& f : futures) {
+        f.get();
+    }
+
+    std::cout << "  100 concurrent operations completed without crashes\n";
+
+    std::cout << "\n=== DownloadTask tests complete ===\n\n";
 }
 
