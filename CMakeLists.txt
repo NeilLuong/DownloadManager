@@ -26,7 +26,8 @@ src/Checksum.cpp
 src/ConfigManager.cpp
 src/Logger.cpp
 src/ThreadPool.cpp
-src/DownloadTask.cpp)
+src/DownloadTask.cpp
+src/DownloadManagerClass.cpp)
 
 # Link libraries
 target_link_libraries(DownloadManager PRIVATE CURL::libcurl OpenSSL::SSL OpenSSL::Crypto)

@@ -9,7 +9,9 @@
 #include "ThreadPool.h"
 #include "DownloadTask.h"
 #include <chrono>
+#include <DownloadManagerClass.h>
 
+void test_download_manager();
 void test_thread_pool();
 void test_download_task();
 
@@ -23,6 +25,11 @@ int main(int argc, char* argv[]) {
     //TestDownloadTask
     if (argc == 2 && std::string(argv[1]) == "--test-downloadtask") {
         test_download_task();
+        return 0;
+    }
+
+    if (argc == 2 && std::string(argv[1]) == "--test-downloadmanager") {
+        test_download_manager();
         return 0;
     }
     //TestEnd
@@ -239,5 +246,59 @@ void test_download_task() {
     std::cout << "  100 concurrent operations completed without crashes\n";
 
     std::cout << "\n=== DownloadTask tests complete ===\n\n";
+}
+
+void test_download_manager() {
+    std::cout << "\n=== Testing DownloadManager ===\n\n";
+    
+    // Test 1: Download 5 files with max 2 concurrent
+    std::cout << "Test 1: Download 5 small files (max 2 concurrent)...\n";
+    
+    DownloadManager manager(2);  // Max 2 concurrent
+    
+    // Add 5 downloads
+    manager.addDownload("https://httpbin.org/bytes/100", "test1.bin", 3, 30, "");
+    manager.addDownload("https://httpbin.org/bytes/200", "test2.bin", 3, 30, "");
+    manager.addDownload("https://httpbin.org/bytes/300", "test3.bin", 3, 30, "");
+    manager.addDownload("https://httpbin.org/bytes/400", "test4.bin", 3, 30, "");
+    manager.addDownload("https://httpbin.org/bytes/500", "test5.bin", 3, 30, "");
+    
+    std::cout << "  Total tasks: " << manager.getTotalCount() << "\n";
+    std::cout << "  Queued: " << manager.getQueuedCount() << "\n";
+    
+    // Start downloads
+    manager.start();
+    
+    std::cout << "  Started! Active: " << manager.getActiveCount() << "\n";
+    
+    // Monitor progress
+    while (manager.getCompletedCount() < manager.getTotalCount()) {
+        std::cout << "  Status: Active=" << manager.getActiveCount()
+                  << " Queued=" << manager.getQueuedCount()
+                  << " Completed=" << manager.getCompletedCount()
+                  << "/" << manager.getTotalCount() << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    
+    // Wait for completion
+    manager.waitForCompletion();
+    
+    std::cout << "  All downloads complete!\n";
+    std::cout << "  Final: Completed=" << manager.getCompletedCount()
+              << " Total=" << manager.getTotalCount() << "\n";
+    
+    // Verify files exist
+    std::cout << "\nTest 2: Verify downloaded files...\n";
+    for (size_t i = 1; i <= 5; ++i) {
+        std::string filename = "test" + std::to_string(i) + ".bin";
+        if (std::filesystem::exists(filename)) {
+            size_t size = std::filesystem::file_size(filename);
+            std::cout << "  " << filename << ": " << size << " bytes ✓\n";
+        } else {
+            std::cout << "  " << filename << ": MISSING ✗\n";
+        }
+    }
+    
+    std::cout << "\n=== DownloadManager tests complete ===\n\n";
 }
 
