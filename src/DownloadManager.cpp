@@ -14,6 +14,7 @@
 void test_download_manager();
 void test_thread_pool();
 void test_download_task();
+void test_pause_resume();
 
 int main(int argc, char* argv[]) {
     //TestThreadPool
@@ -32,6 +33,11 @@ int main(int argc, char* argv[]) {
         test_download_manager();
         return 0;
     }
+
+    if (argc == 2 && std::string(argv[1]) == "--test-pauseresume") {
+    test_pause_resume();
+    return 0;
+}
     //TestEnd
     
     Config config = ArgParser::parse(argc, argv);
@@ -300,5 +306,50 @@ void test_download_manager() {
     }
     
     std::cout << "\n=== DownloadManager tests complete ===\n\n";
+}
+
+void test_pause_resume() {
+    std::cout << "\n=== Testing Pause/Resume ===\n\n";
+    
+    std::cout << "Test 1: Pause and resume a single download...\n";
+    
+    DownloadManager manager(2);
+    
+    // Add a large download (so we have time to pause it)
+    manager.addDownload("https://httpbin.org/bytes/1000000", "large.bin", 3, 300, "");
+    
+    manager.start();
+    
+    std::cout << "  Download started...\n";
+    
+    // Let it download for a bit
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    
+    std::cout << "  Pausing download...\n";
+    manager.pauseDownload("https://httpbin.org/bytes/1000000");
+    
+    std::cout << "  Download paused. Waiting 2 seconds...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    
+    std::cout << "  Resuming download...\n";
+    manager.resumeDownload("https://httpbin.org/bytes/1000000");
+    
+    manager.waitForCompletion();
+    
+    std::cout << "  Download completed!\n";
+    
+    // Verify file
+    if (std::filesystem::exists("large.bin")) {
+        size_t size = std::filesystem::file_size("large.bin");
+        std::cout << "  File size: " << size << " bytes\n";
+        
+        if (size == 1000000) {
+            std::cout << "  ✓ File complete and correct size\n";
+        } else {
+            std::cout << "  ✗ File size mismatch\n";
+        }
+    }
+    
+    std::cout << "\n=== Pause/Resume tests complete ===\n\n";
 }
 

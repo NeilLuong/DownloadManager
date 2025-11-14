@@ -16,9 +16,9 @@ class CurlHttpClient{
 public:
     CurlHttpClient();
     ~CurlHttpClient();
-
-    bool download_file(std::string& url, std::string& output_path, int max_retries = 3, int timeout = 300, int connect_timeout = 30);
-    bool download_and_verify(const Config& config);
+    
+    bool download_file(std::string& url, std::string& output_path, int max_retries = 3, int timeout = 300, int connect_timeout = 30, std::function<bool()> shouldContinue = nullptr);
+    bool download_and_verify(const Config& config, std::function<bool()> shouldContinue = nullptr);
 
     static size_t write_data(void *ptr, size_t size, size_t nmemb, FILE* stream);
 
@@ -28,6 +28,15 @@ public:
 
     
 private:
+    struct WriteContext
+    {
+        FILE* file;
+        std::function<bool()> shouldContinue;
+        bool* shouldStop;
+    };
+
+    static size_t write_data_with_check(void *ptr, size_t size, size_t nmemb, void* userdata);
+    
     static const int MAX_RETRIES = 3;
 
     CURL *curl;

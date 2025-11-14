@@ -38,6 +38,8 @@ public:
     int getConnectTimeoutSeconds() const { return connectTimeoutSeconds_; }
     std::string getExpectedChecksum() const { return expectedChecksum_; }
     bool shouldVerifyChecksum() const { return !expectedChecksum_.empty(); }
+    bool shouldContinue() const;
+    bool waitForPause(std::chrono::milliseconds timeout = std::chrono::seconds(5));
     
 
     //Progress tracking (must be thread-safe)
@@ -69,6 +71,9 @@ private:
 
     //timing 
     std::chrono::steady_clock::time_point startTime_;
+
+    mutable std::condition_variable pauseConfirmed_;
+    mutable std::mutex pauseMutex_;
 };
 
 //Helper function to convert state to string

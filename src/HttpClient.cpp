@@ -220,7 +220,7 @@ std::string get_timestamp() {
 
 
 bool CurlHttpClient::download_file(std::string& url, std::string& output_path,
-                                    int max_retries, int timeout, int connect_timeout) {
+                                    int max_retries, int timeout, int connect_timeout, std::function<bool()> shouldContinue) {
     if(!curl) {
         return false;
     }
@@ -289,10 +289,13 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path,
             std::cerr << "\nFailed to open file for writing: " << temp_path << std::endl;
             return false;
         }
+
+        bool shouldStop = false;
+        WriteContext writeCtx = { fp, shouldContinue, &shouldStop };
         // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data_with_check);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &writeCtx);
 
         //Progress tracking
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -319,6 +322,11 @@ bool CurlHttpClient::download_file(std::string& url, std::string& output_path,
         CURLcode res = curl_easy_perform(curl);
         long response_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+
+        if (shouldStop) {
+            LOG_WARN("Download paused by user request: " + url);
+            return false;
+        }
 
 
         fclose(fp);
@@ -400,17 +408,18 @@ std::string CurlHttpClient::format_bytes(curl_off_t bytes){
         }
         return std::to_string(bytes) + "B";
 }
-bool CurlHttpClient::download_and_verify(const Config& config) {
+bool CurlHttpClient::download_and_verify(const Config& config, std::function<bool()> shouldContinue) {
     // First, perform the download
     std::string url = config.url;
     std::string output_path = config.output_path;
     
-    bool download_success = download_file(url, output_path,
+    bool success = download_file(url, output_path,
                                            config.retry_count,
                                            config.timeout_seconds,
-                                           config.connect_timeout_seconds);
+                                           config.connect_timeout_seconds,
+                                        shouldContinue);
     
-    if (!download_success) {
+    if (!success) {
         return false;  // Download failed
     }
     
@@ -458,3 +467,16 @@ bool CurlHttpClient::download_and_verify(const Config& config) {
     
     return true;  // No verification requested, download succeeded
 }
+
+size_t CurlHttpClient::write_data_with_check(void *ptr, size_t size, size_t nmemb, void* userdata) {
+    WriteContext* ctx = static_cast<WriteContext*>(userdata);
+
+    if (ctx->shouldContinue && !ctx->shouldContinue()) {
+        *(ctx->shouldStop) = true;
+        return 0; // Returning 0 will signal libcurl to abort
+    }
+
+    size_t written = fwrite(ptr, size, nmemb, ctx->file);
+    return written;
+}
+

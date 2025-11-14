@@ -32,6 +32,12 @@ public:
 
     std::shared_ptr<DownloadTask> getTask(size_t index) const;
 
+    //Pause/resume by URL or Index
+    void pauseDownload(const std::string& url);
+    void resumeDownload(const std::string& url);
+    void pauseAll();
+    void resumeAll();
+
 private:
 //Process next task from queue
     void processNextTask();

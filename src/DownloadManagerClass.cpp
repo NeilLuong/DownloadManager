@@ -88,27 +88,41 @@ void DownloadManager::downloadTask(std::shared_ptr<DownloadTask> task) {
     //Convert task to config
     Config config = task->toConfig();
 
+    // Create shouldContinue callback that checks task state
+    auto shouldContinue = [task]() -> bool {
+        return task->shouldContinue();
+    };
+
     //Perform the download
-    bool success = httpClient.download_and_verify(config);
+    bool success = httpClient.download_and_verify(config, shouldContinue);
 
     //Update task state
-    if (success) {
+    if (!success && task->getState() == DownloadState::Paused) {
+        // Paused successfully - don't mark as failed
+        LOG_INFO("Download paused: " + task->getUrl());
+    } else if (success) {
         task->markCompleted();
-    } else{
+    } else {
         task->markFailed("Download failed");
     }
 
     //Decrement active count
-    activeCount_.fetch_sub(1);
-    completedCount_.fetch_add(1);
-
-    LOG_INFO("Downloadworker finished: " + task->getUrl() + " (success: " + (success ? "true" : "false") + ")");
-
-    //Trye to start next queued task
-    if (running_.load()) {
-        processNextTask();
+    if (task->getState() != DownloadState::Paused) {
+        activeCount_.fetch_sub(1);
+        completedCount_.fetch_add(1);
+        
+        // Try to start next queued task
+        if (running_.load()) {
+            processNextTask();
+        }
+    } else {
+        // Paused - just decrement active (don't increment completed)
+        activeCount_.fetch_sub(1);
     }
 
+    LOG_INFO("Download worker finished: " + task->getUrl() + 
+             " (state: " + stateToString(task->getState()) + ")");
+    
     //Notify waiters
     workAvailable_.notify_all();
 }
@@ -167,4 +181,102 @@ std::shared_ptr<DownloadTask> DownloadManager::getTask(size_t index) const {
     }
 
     return tasks_[index];
+}
+
+void DownloadManager::pauseDownload(const std::string& url) {
+    std::shared_ptr<DownloadTask> task;
+    {
+        std::lock_guard<std::mutex> lock(taskMutex_);
+        for (auto& t : tasks_) {
+            if (t->getUrl() == url) {
+                task = t;
+                break;
+            }
+        }
+    }
+
+    if (!task) {
+        LOG_WARN("Cannot pause: task not found: " + url);
+        return;
+    }
+
+    task->pause();
+
+    //Wait for confirmation (with timeout)
+    if (!task->waitForPause(std::chrono::seconds(5))) {
+        LOG_ERROR("Pause failed for: " + url);
+    }
+}
+
+void DownloadManager::resumeDownload(const std::string& url) {
+    std::shared_ptr<DownloadTask> task;
+
+    {
+        std::lock_guard<std::mutex> lock(taskMutex_);
+        for (auto& t : tasks_) {
+            if (t->getUrl() == url && t->getState() == DownloadState::Paused) {
+                task = t;
+                break;
+            }
+        }
+    }
+
+    if (!task) {
+        LOG_WARN("Cannot resume: task not found or not paused: " + url);
+        return;
+    }
+    
+    // Resume the task (will restart download)
+    task->resume();
+
+    if (activeCount_.load() < maxConcurrent_) {
+        activeCount_.fetch_add(1);
+        
+        pool_.enqueue([this, task] {
+            downloadTask(task);
+        });
+    }
+}
+
+void DownloadManager::pauseAll() {
+    std::vector<std::shared_ptr<DownloadTask>> activeTasks;
+
+    {
+        std::lock_guard<std::mutex> lock(taskMutex_);
+        for (auto& t : tasks_) {
+            if (t->getState() == DownloadState::Downloading) {
+                t->pause();
+                activeTasks.push_back(t);
+            }
+        }
+    }
+
+    LOG_INFO("Pausing" + std::to_string(activeTasks.size()) + " downloads");
+    for (auto& task: activeTasks) {
+        task->pause();
+    }
+
+    // Wait for all to pause
+    for (auto& task : activeTasks) {
+        task->waitForPause(std::chrono::seconds(5));
+    }
+}
+
+void DownloadManager::resumeAll() {
+    std::vector<std::shared_ptr<DownloadTask>> pausedTasks;
+
+    {
+        std::lock_guard<std::mutex> lock(taskMutex_);
+        for (auto& t : tasks_) {
+            if (t->getState() == DownloadState::Paused) {
+                pausedTasks.push_back(t);
+            }
+        }
+    }
+
+    LOG_INFO("Resuming " + std::to_string(pausedTasks.size()) + " downloads");
+    
+    for (auto& task: pausedTasks) {
+        resumeDownload(task->getUrl());
+    }
 }

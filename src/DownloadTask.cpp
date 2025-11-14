@@ -44,14 +44,14 @@ void DownloadTask::start() {
     }
 }
 
-void DownloadTask::pause() {
-    DownloadState expected = DownloadState::Downloading;
-    if (state_.compare_exchange_strong(expected, DownloadState::Paused)) {
-        LOG_INFO("Download paused: " + url_);
-    } else {
-        LOG_WARN("Cannot pause download, current state: " + stateToString(expected));
-    }
-}
+// void DownloadTask::pause() {
+//     DownloadState expected = DownloadState::Downloading;
+//     if (state_.compare_exchange_strong(expected, DownloadState::Paused)) {
+//         LOG_INFO("Download paused: " + url_);
+//     } else {
+//         LOG_WARN("Cannot pause download, current state: " + stateToString(expected));
+//     }
+// }
 
 void DownloadTask::resume() {
     DownloadState expected = DownloadState::Paused;
@@ -134,5 +134,36 @@ Config DownloadTask::toConfig() const {
     config.show_help = false;
     config.default_download_dir = ".";
     return config;
+}
+
+bool DownloadTask::shouldContinue() const {
+    DownloadState state = state_.load(std::memory_order_relaxed);
+    return (state == DownloadState::Downloading);
+}
+
+bool DownloadTask::waitForPause(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(pauseMutex_);
+
+    //Wait until state is Paused (or timeout)
+    bool paused = pauseConfirmed_.wait_for(lock, timeout, [this] {
+        return state_.load() == DownloadState::Paused;
+    });
+
+    if (!paused) {
+        LOG_WARN("Pause timeout for: " + url_);
+    }
+
+    return paused;
+}
+
+void DownloadTask::pause() {
+    DownloadState expected = DownloadState::Downloading;
+
+    if (state_.compare_exchange_strong(expected, DownloadState::Paused)) {
+        LOG_INFO("Download paused: " + url_);
+        pauseConfirmed_.notify_all();
+    } else {
+        LOG_WARN("Cannot pause download, current state: " + stateToString(expected));
+    }
 }
 
